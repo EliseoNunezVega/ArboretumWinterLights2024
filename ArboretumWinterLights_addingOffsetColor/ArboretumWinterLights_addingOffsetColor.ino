@@ -27,6 +27,19 @@ String serialOutput = "";  // Store serial output
 bool webInputAvailable = 0;
 String webInput = "";
 
+
+// MOVING AVERAGE VARIABLES
+
+const int windowSize = 4;     // Set the moving average window size
+float readings1[windowSize];  // Array to store distance measurements
+int idxx = 0;                 // Current index in the readings array
+float sum1 = 0;               // Sum of the last 'windowSize' readings
+float movingAverage1 = 0;     // The current moving average
+
+float readings2[windowSize];  // Array to store distance measurements
+float sum2 = 0;               // Sum of the last 'windowSize' readings
+float movingAverage2 = 0;     // The current moving average
+
 // Debugging flags
 bool printDistancesEnabled = 0;
 bool displayArtnetData = 0;
@@ -39,7 +52,7 @@ bool twoHandEffectActive = 1;
 int previous_distance1 = 0;
 int previous_distance2 = 0;
 float old_weight = 0.5;
-float new_weight = 0.5;
+float new_weight = 0.5; // using as moving average test
 
 // Rail specific parameters
 int RAIL_LENGTH = 1143;
@@ -52,7 +65,7 @@ bool sensor2Errored = 0;
 // Instantiating distance sensor classes & LED class
 SFEVL53L1X distanceSensor1(Wire, XSHUT_PIN1, IRQ_PIN1);
 SFEVL53L1X distanceSensor2(Wire, XSHUT_PIN2, IRQ_PIN2);
-Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RWGB + NEO_KHZ800);
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RGBW + NEO_KHZ800);
 
 // Global color channel variables: changed by lightjams via Artnet
 uint8_t r_channel = 255;
@@ -768,6 +781,14 @@ void setup() {
   while (!Serial) delay(10);
   println("Setting up...");
 
+  for (int i = 0; i < windowSize; i++) {
+    readings1[i] = 0;
+  }
+
+  for (int i = 0; i < windowSize; i++) {
+    readings2[i] = 0;
+  }
+
   // Initialize sensors, LEDs, and connect to WiFi
   Wire.begin();
   setupSensors();
@@ -1242,8 +1263,8 @@ void handleSerialCommands() {
       useFilter = !useFilter;
     }
     if (input == 'n' || input == 'N') {
-      new_weight = Serial.parseFloat();
-      print("Received float value: ");
+      new_weight = Serial.parseInt();
+      print("Received int value: ");
       println(new_weight);
     }
     if (input == 'o' || input == 'O') {
@@ -1399,16 +1420,41 @@ void loop() {
     sensor2Errored = true;
   }
 
-  filtered_distance1 = distance1 * new_weight + previous_distance1 * old_weight;
-  filtered_distance2 = distance2 * new_weight + previous_distance2 * old_weight;
+  // filtered_distance1 = distance1 * new_weight + previous_distance1 * old_weight;
+  // filtered_distance2 = distance2 * new_weight + previous_distance2 * old_weight;
+
+  filtered_distance1 = new_weight * distance1 + (1 - new_weight) * filtered_distance1;
+  filtered_distance2 = new_weight * distance2 + (1 - new_weight) * filtered_distance2;
+
+
+
+  // Update the sum by subtracting the oldest reading and adding the new one
+  sum1 -= readings1[idxx];
+  sum2 -= readings2[idxx];
+  readings1[idxx] = distance1;
+  readings2[idxx] = distance2;
+  sum1 += readings1[idxx];
+  sum2 += readings2[idxx];
+
+  // Update index to the next position in the circular buffer
+  idxx = (idxx + 1) % windowSize;
+
+  // Calculate the moving average
+  movingAverage1 = sum1 / windowSize;
+  movingAverage2 = sum2 / windowSize;
 
   if (useFilter) {
     distance1 = filtered_distance1;
     distance2 = filtered_distance2;
+    // distance1 = movingAverage1;
+    // distance2 = movingAverage2;
   }
 
-  previous_distance1 = filtered_distance1;
-  previous_distance2 = filtered_distance2;
+  distance1 = filtered_distance1;
+  distance2 = filtered_distance2;
+
+  // previous_distance1 = filtered_distance1;
+  // previous_distance2 = filtered_distance2;
 
   int howManyHandsTouching = howManyHands(distance1, distance2);
   artnet.read();
